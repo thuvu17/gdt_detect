@@ -1,6 +1,5 @@
-# CompMed: Computational Medicine Project
+# Computational Medicine Project
 
-Single-cell RNA-seq analysis and integration of multiple immune cell datasets.
 
 ## Structure
 
