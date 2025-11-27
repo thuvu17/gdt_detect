@@ -19,33 +19,5 @@ venv/
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
 
-# Data files (large files)
-*.h5ad
-*.h5seurat
-*.rds
-*.gz
-*.csv.gz
-*.tsv
-*.mtx
-
-# R
-.Rhistory
-.RData
-.Rproj.user
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Outputs
-*.png
-*.pdf
-*.svg
-results/
-figures/
+# Raw data
+data/raw
