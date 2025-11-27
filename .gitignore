@@ -21,3 +21,13 @@ venv/
 
 # Raw data
 data/raw
+data/processed
+
+# wandb
+wandb/
+
+# model outputs
+model_output/
+
+# Logs
+train.log
