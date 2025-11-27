@@ -1,0 +1,33 @@
+general:
+  seed: 42
+  # Path to save training logs (if used by your logger)
+  output_path: "model_output/"
+
+data:
+  # Path to the JSON file containing your pre-padded embeddings, masks, and labels.
+  data_path: "data/gdt_3p.h5ad"
+
+model:
+  # Choose the model type based on the baseline method.
+  model_choice: "mlp"  # Options: "logistic_regression", "random_forest", "mlp"
+  # Path to save the best model checkpoint.
+  model_save_path: "results/model/${model.model_choice}_model.ckpt"
+  # Model hyperparameters.
+  num_epochs: 100
+  hidden: 256
+  dropout: 0
+  batch_size: 32
+  learning_rate: 0.001
+  early_stop_patience: 10
+
+wandb:
+  project: CMU_GDT_Detection
+  run_id: null
+  run_name: ${model.model_choice}_bs${model.batch_size}
+
+hydra:
+  run:
+    dir: "."
+  job_logging:
+    root:
+      handlers: null
