@@ -14,9 +14,9 @@ model:
   model_save_path: "results/model/${model.model_choice}_model.ckpt"
   # Model hyperparameters.
   num_epochs: 100
-  hidden: 256
-  dropout: 0
-  batch_size: 32
+  hidden: 64
+  dropout: 0.5
+  batch_size: 64
   learning_rate: 0.001
   early_stop_patience: 10
 

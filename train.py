@@ -25,19 +25,17 @@ import wandb
 warnings.filterwarnings('ignore')
 
 class MLP(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
+    def __init__(self, input_size, hidden_size, output_size, dropout_rate=0.5): # 增加 dropout参数
         super(MLP, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, output_size)
         self.relu = nn.ReLU()
-        # For binary classification we'll return logits (no final activation)
-        # and use BCEWithLogitsLoss which combines a sigmoid + binary CE in a
-        # numerically stable way. For multiclass, change output_size and loss.
+        self.dropout = nn.Dropout(p=dropout_rate) # 定义 Dropout
 
     def forward(self, x):
-        out = self.relu(self.fc1(x))
-        out = self.relu(self.fc2(out))
+        out = self.dropout(self.relu(self.fc1(x))) # 使用 Dropout
+        out = self.dropout(self.relu(self.fc2(out))) # 使用 Dropout
         out = self.fc3(out)
         return out
     
@@ -59,8 +57,8 @@ def load_data(file_path):
     print("\nCell Type Labels")
     print(labels.value_counts())
 
-    le = LabelEncoder()
-    y = le.fit_transform(labels)
+    # set gdt as positive class (1), other as negative class (0)
+    y = labels.cat.codes.replace({labels.cat.categories.get_loc('gdt'): 1, labels.cat.categories.get_loc('other'): 0}).values
 
     return adata, y
 
@@ -159,9 +157,9 @@ def MLP_train(config, X, y):
         train_dataset = TensorDataset(X_train, y_train)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-        model = MLP(input_size=X.shape[1], hidden_size=config.model.hidden, output_size=1).to(device)
+        model = MLP(input_size=X.shape[1], hidden_size=config.model.hidden, output_size=1, dropout_rate=config.model.dropout).to(device)
         criterion = nn.BCEWithLogitsLoss()
-        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
 
         early_stopping_counter = 0
         best_auc = -np.inf
@@ -169,6 +167,7 @@ def MLP_train(config, X, y):
         for epoch in range(epochs):
             model.train()
             epoch_losses = []
+            epoch_accuracy = 0.0
             tqdm_loader = tqdm(train_loader, desc=f"Fold {fold_count} Epoch {epoch+1}/{epochs}")
             for X_batch, y_batch in tqdm_loader:
                 X_batch = X_batch.to(device)
@@ -179,7 +178,8 @@ def MLP_train(config, X, y):
                 loss.backward()
                 optimizer.step()
                 epoch_losses.append(loss.item())
-                tqdm_loader.set_postfix(loss=loss.item())
+                epoch_accuracy += ((torch.sigmoid(logits) > 0.5) == y_batch).float().mean().item()
+                tqdm_loader.set_postfix(loss=loss.item(), accuracy=epoch_accuracy / (len(tqdm_loader)))
                 tqdm_loader.update()
 
             # evaluate on validation/test split of this fold
@@ -189,20 +189,26 @@ def MLP_train(config, X, y):
                 test_logits = model(X_test_device)
                 test_probs = torch.sigmoid(test_logits).cpu().numpy().ravel()
                 y_test_np_arr = y_test.cpu().numpy().ravel()
-                try:
-                    auc = roc_auc_score(y_test_np_arr, test_probs)
-                except Exception:
-                    auc = np.nan
+                val_auc = roc_auc_score(y_test_np_arr, test_probs)
+                
+                predicted = (test_probs > 0.5).astype(int)
+                val_accuracy = (predicted == y_test_np_arr).mean()
+                # try:
+                #     auc = roc_auc_score(y_test_np_arr, test_probs)
+                # except Exception:
+                #     auc = np.nan
 
             wandb.log({
                 f"Fold_{fold_count}_Train/Loss": np.mean(epoch_losses) if epoch_losses else None,
-                f"Fold_{fold_count}_Val/AUC": auc,
+                f"Fold_{fold_count}_Train/Accuracy": epoch_accuracy / (len(tqdm_loader)),
+                f"Fold_{fold_count}_Val/AUC": val_auc,
+                f"Fold_{fold_count}_Val/Accuracy": val_accuracy,
                 f"Fold_{fold_count}_Epoch": epoch
             })
 
             # early stopping based on AUC
-            if not np.isnan(auc) and auc > best_auc:
-                best_auc = auc
+            if not np.isnan(val_auc) and val_auc > best_auc:
+                best_auc = val_auc
                 early_stopping_counter = 0
                 # save best weights for this fold
                 os.makedirs(fold_path, exist_ok=True)
