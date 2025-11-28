@@ -15,6 +15,7 @@ import os
 from copy import deepcopy
 from sklearn.base import clone
 from torch.utils.data import DataLoader, TensorDataset
+import matplotlib.pyplot as plt
 
 import hydra
 from omegaconf import OmegaConf, DictConfig
@@ -286,6 +287,21 @@ def main(cfg):
             selected_genes = adata.var_names[importances > np.percentile(importances, 95)]
             # print selected genes
             print(f"Selected genes ({len(selected_genes)}): {selected_genes.tolist()}")
+            signature_genes = ['CD8A', 'CD8B', 'TRDC', 'TRGC1', 'TRGC2']
+            # draw histogram of importances for top15 genes + signature_genes
+            top_indices = np.argsort(importances)[-15:]
+            combined_genes = list(adata.var_names[top_indices]) + signature_genes
+            combined_indices = [adata.var_names.get_loc(gene) for gene in combined_genes if gene in adata.var_names]
+            # color top_indices with blue, signature_genes with orange
+            plt.figure(figsize=(10,6))
+            colors = ['lightblue'] * len(top_indices) + ['orange'] * len(signature_genes)
+            plt.barh(range(len(combined_indices)), importances[combined_indices], align='center', color=colors)
+            plt.yticks(range(len(combined_indices)), [adata.var_names[i] for i in combined_indices])
+            plt.xlabel('Feature Importance')
+            plt.title('Top 15 Gene Importances from Random Forest')
+            plt.savefig(cfg.general.output_path + "rf_top15_gene_importances.png")
+            plt.close()
+
             # save selected genes to a file
             with open(cfg.general.output_path + "selected_genes_rf.txt", "w") as f:
                 for gene in selected_genes:
