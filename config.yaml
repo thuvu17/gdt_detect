@@ -9,7 +9,7 @@ data:
 
 model:
   # Choose the model type based on the baseline method.
-  model_choice: "mlp"  # Options: "logistic_regression", "random_forest", "mlp"
+  model_choice: "lasso"  # Options: "logistic_regression", "random_forest", "mlp"
   # Path to save the best model checkpoint.
   model_save_path: "results/model/${model.model_choice}_model.ckpt"
   # Model hyperparameters.

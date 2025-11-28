@@ -2,7 +2,6 @@ import scanpy as sc
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import KFold
@@ -10,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
-import argparse
 import warnings
 import joblib
 import os
@@ -193,10 +191,7 @@ def MLP_train(config, X, y):
                 
                 predicted = (test_probs > 0.5).astype(int)
                 val_accuracy = (predicted == y_test_np_arr).mean()
-                # try:
-                #     auc = roc_auc_score(y_test_np_arr, test_probs)
-                # except Exception:
-                #     auc = np.nan
+
 
             wandb.log({
                 f"Fold_{fold_count}_Train/Loss": np.mean(epoch_losses) if epoch_losses else None,
@@ -231,10 +226,7 @@ def MLP_train(config, X, y):
             y_test_np_arr = y_test.cpu().numpy().ravel()
             predicted = (test_probs > 0.5).astype(int)
             accuracy = (predicted == y_test_np_arr).mean()
-            try:
-                auc = roc_auc_score(y_test_np_arr, test_probs)
-            except Exception:
-                auc = np.nan
+            auc = roc_auc_score(y_test_np_arr, test_probs)
 
         print(f"Fold {fold_count} - MLP Accuracy: {accuracy}, AUC: {auc}")
         fold_accuracies.append(accuracy)
@@ -312,102 +304,3 @@ def main(cfg):
 
 if __name__ == "__main__":
     main()
-
-# # use LASSO regression, random forests, and autoencoders to do feature selection
-
-# # LaSSO Regression
-# le = LabelEncoder()
-# y = le.fit_transform(labels)
-# X_train, X_test, y_train, y_test = train_test_split(adata.X, y, test_size=0.2, random_state=42, stratify=y)
-# lasso = LassoCV(cv=5).fit(X_train, y_train)
-# lasso_coef = pd.Series(lasso.coef_, index=adata.var_names)
-# selected_genes_lasso = lasso_coef[lasso_coef != 0].index.tolist
-# print(f"\nSelected genes by LASSO: {selected_genes_lasso}")
-# # print("Selected genes count:", len(selected_genes_lasso))
-
-# # test classification accuracy
-# y_pred = lasso.predict(X_test)
-# y_pred_class = (y_pred > 0.5).astype(int)
-# accuracy = accuracy_score(y_test, y_pred_class)
-# print(f"LASSO Classification Accuracy: {accuracy}")
-
-
-# # Random Forests    
-# rf = RandomForestClassifier(n_estimators=100, random_state=42)
-# rf.fit(X_train, y_train)
-# importances = rf.feature_importances_
-# rf_importances = pd.Series(importances, index=adata.var_names)
-# selected_genes_rf = rf_importances[rf_importances > np.percentile(rf_importances, 90)].index.tolist()
-# # print(f"\nSelected genes by Random Forests: {selected_genes_rf}")
-# print("Selected genes count:", len(selected_genes_rf))
-
-# # test classification accuracy
-# y_pred_rf = rf.predict(X_test)
-# accuracy_rf = accuracy_score(y_test, y_pred_rf)
-# print(f"Random Forests Classification Accuracy: {accuracy_rf}")
-
-# # Autoencoder
-# input_dim = adata.X.shape[1]
-# encoding_dim = 50  # dimension of encoded representation
-# input_layer = Input(shape=(input_dim,))
-# encoded = Dense(encoding_dim, activation='relu')(input_layer)
-# decoded = Dense(input_dim, activation='sigmoid')(encoded)
-# autoencoder = Model(input_layer, decoded)
-# autoencoder.compile(optimizer='adam', loss='mean_squared_error')
-# autoencoder.fit(X_train, X_train, epochs=50, batch_size=256, shuffle=True, validation_split=0.2, verbose=0)
-# # Get weights of the first layer
-# weights = autoencoder.layers[1].get_weights()[0]
-# weight_importance = pd.Series(np.mean(np.abs(weights), axis=1), index=adata.var_names)
-# selected_genes_ae = weight_importance[weight_importance > np.percentile(weight_importance, 90)].index.tolist()
-# # print(f"\nSelected genes by Autoencoder: {selected_genes_ae}")
-# print("Selected genes count:", len(selected_genes_ae))
-
-# # test classification accuracy using a simple dense network
-# encoded_input = Input(shape=(encoding_dim,))
-# decoded_output = autoencoder.layers[-1](encoded_input)
-# encoder = Model(input_layer, encoded)
-# X_train_encoded = encoder.predict(X_train)
-# X_test_encoded = encoder.predict(X_test)
-# classifier_input = Input(shape=(encoding_dim,))
-# classifier_output = Dense(len(np.unique(y)), activation='softmax')(classifier_input)
-# classifier = Model(classifier_input, classifier_output)
-# classifier.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-# classifier.fit(X_train_encoded, y_train, epochs=50, batch_size=256, shuffle=True, validation_split=0.2, verbose=0)
-# loss, accuracy_ae = classifier.evaluate(X_test_encoded, y_test, verbose=0)
-# print(f"Autoencoder Classification Accuracy: {accuracy_ae}")
-
-# # use three layer MLP to do classification
-# input_dim = adata.X.shape[1]
-# model = MLP(input_size=input_dim, hidden_size=100, output_size=len(np.unique(y)))
-# criterion = nn.CrossEntropyLoss()
-# optimizer = optim.Adam(model.parameters(), lr=0.001)
-# X_tensor = torch.FloatTensor(adata.X)
-# y_tensor = torch.LongTensor(y)
-
-# tqdm_epochs = tqdm(range(50), desc="Training MLP")
-
-# # training loop
-# for epoch in tqdm_epochs:
-#     model.train()
-#     optimizer.zero_grad()
-#     outputs = model(X_tensor)
-#     loss = criterion(outputs, y_tensor)
-#     loss.backward()
-#     optimizer.step()
-#     tqdm_epochs.set_postfix(loss=loss.item())
-#     tqdm_epochs.update()
-
-# # evaluate
-# model.eval()
-# with torch.no_grad():
-#     outputs = model(X_tensor)
-#     _, predicted = torch.max(outputs.data, 1)
-#     accuracy_mlp = (predicted == y_tensor).sum().item() / y_tensor.size(0)
-# print(f"MLP Classification Accuracy: {accuracy_mlp}")
-
-# # print summary model performance
-# print("\nModel Performance Summary:")
-# print(f"LASSO Accuracy: {accuracy}")
-# print(f"Random Forests Accuracy: {accuracy_rf}")
-# print(f"Autoencoder Accuracy: {accuracy_ae}")
-# print(f"MLP Accuracy: {accuracy_mlp}")
