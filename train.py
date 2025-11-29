@@ -41,25 +41,19 @@ class MLP(nn.Module):
 def load_data(file_path):
     # convert to dataframes for easier handling
     adata=sc.read_h5ad(file_path)
-    X_df = pd.DataFrame(adata.X, columns=adata.var_names)
+    X_df = pd.DataFrame(adata.layers['scVI_corrected'], columns=adata.var_names)
 
     print("Expression Matrix (X)")
     print(X_df.head())
 
-    labels = adata.obs['celltype']
-
-    # change to binary labels: any celltype containing 'gdt' -> 'gdt', else 'other'
-    # This avoids accidental multi-class labels when there are multiple gdt subtypes.
-    labels = labels.apply(lambda x: 'gdt' if isinstance(x, str) and 'gdt' in x.lower() else 'other')
-    labels = labels.astype('category')
+    labels = adata.obs['is_gdt']
 
     print("\nCell Type Labels")
     print(labels.value_counts())
 
     # set gdt as positive class (1), other as negative class (0)
-    y = labels.cat.codes.replace({labels.cat.categories.get_loc('gdt'): 1, labels.cat.categories.get_loc('other'): 0}).values
 
-    return adata, y
+    return adata, X_df.values, labels
 
 def load_wandb(cfg):
     """Initialize wandb logging."""
@@ -255,17 +249,19 @@ def main(cfg):
     np.random.seed(42)
     torch.manual_seed(42)
 
+    signature_genes = ['CD8A', 'CD8B', 'TRDC', 'TRGC1', 'TRGC2']
+
     print("\nLoading data...")
-    adata, labels = load_data(cfg.data.data_path)
+    adata, X, labels = load_data(cfg.data.data_path)
     # ensure output directory exists early
     os.makedirs(cfg.general.output_path, exist_ok=True)
-    print("\nTraining model...")
+    print(f"\nTraining model {cfg.model.model_choice}...")
     if cfg.model.model_choice == 'lasso':
-        model = LASSO_train(adata.X, labels)
+        model = LASSO_train(X, labels)
     elif cfg.model.model_choice == 'random_forest':
-        model = RF_train(adata.X, labels)
+        model = RF_train(X, labels)
     elif cfg.model.model_choice == 'mlp':
-        model, cv_acc, cv_auc = MLP_train(cfg, adata.X, labels)
+        model, cv_acc, cv_auc = MLP_train(cfg, X, labels)
         print(f"MLP CV Accuracy: {cv_acc}, CV AUC: {cv_auc}")
     else:
         raise ValueError("Invalid model type. Choose from: lasso, random_forest, mlp")
@@ -282,12 +278,24 @@ def main(cfg):
             with open(cfg.general.output_path + "selected_genes_lasso.txt", "w") as f:
                 for gene in selected_genes:
                     f.write(gene + "\n")
+            # draw histogram of coefficients for top15 genes + signature_genes
+            top_indices = np.argsort(np.abs(coefs))[-15:]
+            combined_genes = list(adata.var_names[top_indices]) + signature_genes
+            combined_indices = [adata.var_names.get_loc(gene) for gene in combined_genes if gene in adata.var_names]
+            # color top_indices with blue, signature_genes with orange
+            plt.figure(figsize=(10,6))
+            colors = ['lightblue'] * len(top_indices) + ['orange'] * len(signature_genes)
+            plt.barh(range(len(combined_indices)), coefs[combined_indices], align='center', color=colors)
+            plt.yticks(range(len(combined_indices)), [adata.var_names[i] for i in combined_indices])
+            plt.xlabel('Coefficient Value')
+            plt.title('Top 15 Coefficients from LASSO')
+            plt.savefig(cfg.general.output_path + "lasso_top15_coefficients.png")
+            plt.close()
         elif cfg.model.model_choice == 'random_forest':
             importances = model.feature_importances_
             selected_genes = adata.var_names[importances > np.percentile(importances, 95)]
             # print selected genes
             print(f"Selected genes ({len(selected_genes)}): {selected_genes.tolist()}")
-            signature_genes = ['CD8A', 'CD8B', 'TRDC', 'TRGC1', 'TRGC2']
             # draw histogram of importances for top15 genes + signature_genes
             top_indices = np.argsort(importances)[-15:]
             combined_genes = list(adata.var_names[top_indices]) + signature_genes

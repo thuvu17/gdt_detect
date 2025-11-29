@@ -20,7 +20,7 @@ def load_model(model_type, model_path):
     elif model_type == 'random_forest':
         model = joblib.load(model_path)
     elif model_type == 'mlp':
-        model = MLP(input_size=2000, hidden_size=64, output_size=1, dropout_rate=0.5)
+        model = MLP(input_size=451, hidden_size=64, output_size=1, dropout_rate=0.5)
         model.load_state_dict(torch.load(model_path))
         model.eval()
     else:
@@ -47,22 +47,22 @@ def predict_proba(model, X):
         probabilities = model.predict_proba(X)[:, 1]
     return probabilities
 
-def encode_labels(labels):
-    labels = labels.apply(lambda x: 'gdt' if isinstance(x, str) and 'gdt' in x.lower() else 'other')
-    labels = labels.astype('category')
-    print("\nCell Type Labels")
-    print(labels.value_counts())
+# def encode_labels(labels):
+#     labels = labels.apply(lambda x: 'gdt' if isinstance(x, str) and 'gdt' in x.lower() else 'other')
+#     labels = labels.astype('category')
+#     print("\nCell Type Labels")
+#     print(labels.value_counts())
 
-    # set gdt as positive class (1), other as negative class (0)
-    encoded_labels = labels.cat.codes.replace({labels.cat.categories.get_loc('gdt'): 1, labels.cat.categories.get_loc('other'): 0}).values
-    return encoded_labels
+#     # set gdt as positive class (1), other as negative class (0)
+#     encoded_labels = labels.cat.codes.replace({labels.cat.categories.get_loc('gdt'): 1, labels.cat.categories.get_loc('other'): 0}).values
+#     return encoded_labels
 
 def slience_genes(adata, model_adata, selected_genes):
     # slience selected_genes by using median expression in model_adata
     gene_indices = [adata.var_names.get_loc(gene) for gene in selected_genes if gene in adata.var_names]
-    median_expression = model_adata[:, selected_genes].X.mean(axis=0)
+    median_expression = model_adata[:, selected_genes].layers['scVI_corrected'].mean(axis=0)
     for i, gene_idx in enumerate(gene_indices):
-        adata.X[:, gene_idx] = median_expression[i]
+        adata.layers['scVI_corrected'][:, gene_idx] = median_expression[i]
     return adata
 
 def align_genes(adata, model_adata, model_genes):
@@ -85,11 +85,11 @@ def main():
     # cfg = OmegaConf.create(cfg)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_type', type=str, default='random_forest', help='Type of model: lasso, random_forest, mlp')
+    parser.add_argument('--model_type', type=str, required=True, help='Type of model: lasso, random_forest, mlp')
     parser.add_argument('--model_path', type=str, default='model_output', help='Path to the trained model file')
-    parser.add_argument('--input_data', type=str, default='data/processed/pbmc_4k8k.h5ad', help='Path to input data file (e.g., h5ad)')
+    parser.add_argument('--input_data', type=str, default='data/ready/pbmc_3p5p_clean_gdt_scvi_integrated.h5ad', help='Path to input data file (e.g., h5ad)')
     parser.add_argument('--output_path', type=str, default='evaluation_results', help='Path to save prediction results')
-    parser.add_argument('--model_data', type=str, default='./data/processed/pbmc_4k8k.h5ad', help='Path to model data file (e.g., h5ad) for gene alignment')
+    parser.add_argument('--model_data', type=str, default='./data/ready/pbmc_4k8k_clean_gdt_scvi_integrated.h5ad', help='Path to model data file (e.g., h5ad) for gene alignment')
     parser.add_argument('--silence_genes', type=str, default=None, help='Path to file with genes to silence')
     args = parser.parse_args()
 
@@ -103,6 +103,7 @@ def main():
     performance_path = args.output_path + '/' + args.model_type + '_performance.txt'
     os.makedirs(args.output_path, exist_ok=True)
     model = load_model(args.model_type, model_path)
+
     # Load data
     adata = sc.read_h5ad(args.input_data)
 
@@ -116,20 +117,20 @@ def main():
         adata = slience_genes(adata, model_adata, genes_to_silence)
 
     # Encode labels
-    y = encode_labels(adata.obs['celltype'])
+    y = adata.obs['is_gdt']
 
     # Predict
     if args.model_type == 'mlp':
         with torch.no_grad():
-            adata_tensor = torch.tensor(adata.X, dtype=torch.float32)
+            adata_tensor = torch.tensor(adata.layers['scVI_corrected'], dtype=torch.float32)
             y = torch.tensor(y, dtype=torch.float32)
             logits = model(adata_tensor)
             probabilities = torch.sigmoid(logits).cpu().numpy().ravel()
             y = y.cpu().numpy().ravel()
             predictions = (probabilities > 0.5).astype(int)
     else:
-        predictions = predict(model, adata.X)
-        probabilities = predict_proba(model, adata.X)
+        predictions = predict(model, adata.layers['scVI_corrected'])
+        probabilities = predict_proba(model, adata.layers['scVI_corrected'])
     # evaluate
     accuracy = (predictions == y).mean()
     auc = roc_auc_score(y, probabilities)
